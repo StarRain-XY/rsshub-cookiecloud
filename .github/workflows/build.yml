@@ -1,0 +1,56 @@
+name: Build and Publish Public Image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest .
+
+      - name: Smoke test CookieCloud hook and RSSHub startup
+        run: |
+          docker run -d --name rsshub-smoke -p 1200:1200 \
+            -e COOKIE_CLOUD_HOST=http://127.0.0.1:8088 \
+            -e COOKIE_CLOUD_UUID=smoke-test \
+            -e COOKIE_CLOUD_PASSWORD=smoke-pass \
+            -e COOKIE_CLOUD_INTERVAL=3600 \
+            ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:1200/ >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker logs rsshub-smoke
+          docker logs rsshub-smoke | grep -q "CookieCloud loaded."
+          curl -fsS http://127.0.0.1:1200/ | grep -q "RSSHub"
+          docker rm -f rsshub-smoke
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push public image
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          SHA_TAG="sha-${GITHUB_SHA::12}"
+          docker tag ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest ghcr.io/${OWNER}/rsshub-cookiecloud:latest
+          docker tag ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest ghcr.io/${OWNER}/rsshub-cookiecloud:${SHA_TAG}
+          docker push ghcr.io/${OWNER}/rsshub-cookiecloud:latest
+          docker push ghcr.io/${OWNER}/rsshub-cookiecloud:${SHA_TAG}
