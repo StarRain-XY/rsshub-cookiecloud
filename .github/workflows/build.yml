@@ -16,9 +16,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set lowercase image name
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=ghcr.io/${OWNER}/rsshub-cookiecloud" >> "$GITHUB_ENV"
+          echo "SHA_TAG=sha-${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+
       - name: Build Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest .
+          docker build -t "${IMAGE}:latest" -t "${IMAGE}:${SHA_TAG}" .
 
       - name: Smoke test CookieCloud hook and RSSHub startup
         run: |
@@ -27,7 +33,7 @@ jobs:
             -e COOKIE_CLOUD_UUID=smoke-test \
             -e COOKIE_CLOUD_PASSWORD=smoke-pass \
             -e COOKIE_CLOUD_INTERVAL=3600 \
-            ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest
+            "${IMAGE}:latest"
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:1200/ >/dev/null 2>&1; then
               break
@@ -48,9 +54,5 @@ jobs:
 
       - name: Push public image
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          SHA_TAG="sha-${GITHUB_SHA::12}"
-          docker tag ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest ghcr.io/${OWNER}/rsshub-cookiecloud:latest
-          docker tag ghcr.io/${{ github.repository_owner }}/rsshub-cookiecloud:latest ghcr.io/${OWNER}/rsshub-cookiecloud:${SHA_TAG}
-          docker push ghcr.io/${OWNER}/rsshub-cookiecloud:latest
-          docker push ghcr.io/${OWNER}/rsshub-cookiecloud:${SHA_TAG}
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:${SHA_TAG}"
